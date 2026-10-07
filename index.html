@@ -591,20 +591,23 @@ $("gal").addEventListener("click",e=>{
  galShow();
 });
 $("gal").addEventListener("keydown",e=>{if(e.key==="ArrowRight"||e.key==="ArrowLeft"){const n=STOVES.find(x=>x.id===G.id).imgs.length;G.i=(G.i+(e.key==="ArrowRight"?1:-1)+n)%n;galShow()}});
-const F={svc:null,step:1,mode:null,stove:null,pick:false,gm:null,own:null,deal:null,cfg:{}};
+const F={svc:null,step:1,mode:null,stove:null,pick:false,gm:null,own:null,deal:null,rk:null,rt:24,cfg:{}};
 const $f=$;
 const MK={12:.08,24:.15,36:.22},RI={hob:2000,geyser:3450};/* placeholder finance maths: replace with real rates */
-const RA={hob:"s2",geyser:"gy2"};/* representative appliance priced on each rent-to-own card */
-function rdc(id){
- const d=RD.find(x=>x.id===id);if(!d)return null;
- const H=d.grp!=="geyser",G=d.grp!=="hob",st=STOVES.find(x=>x.id===RA.hob),g=GEYS.find(x=>x.id===RA.geyser);let price=0,inst=0;
- if(H){price+=st.price;inst+=RI.hob}if(G){price+=g.price;inst+=RI.geyser}
- const pr=Math.max(0,price+inst-d.dep),m=Math.ceil(pr*(1+MK[d.n])/d.n/10)*10;
- return{...d,m,st:H?st:null,g:G?g:null};
+const RA={hob:"s2"};/* hob bundled with each geyser in the bundle */
+const TERMS={hob:[12,24],geyser:[12,24,36],bundle:[24]};
+function rdc(pid,k=F.rk,n=F.rt){
+ const d=RD.find(x=>x.grp===k&&x.n===n);if(!d)return null;
+ const st=k==="geyser"?null:STOVES.find(x=>x.id===(k==="hob"?pid:RA.hob)),g=k==="hob"?null:GEYS.find(x=>x.id===pid);
+ if((k!=="geyser"&&!st)||(k!=="hob"&&!g))return null;
+ let price=0,inst=0;if(st){price+=st.price;inst+=RI.hob}if(g){price+=g.price;inst+=RI.geyser}
+ const pr=Math.max(0,price+inst-d.dep),m=Math.ceil(pr*(1+MK[d.n])/d.n/10)*10,nm=[st&&st.name,g&&g.name].filter(Boolean).join(" + ");
+ return{...d,m,st,g,pid,nm,name:nm+" ("+d.n+"-month rent to own)",pts:k==="hob"?["Gas hob supplied",...d.pts.slice(1)]:d.pts};
 }
+const minRent=()=>Math.min(...STOVES.map(x=>rdc(x.id,"hob",24).m),...GEYS.map(x=>rdc(x.id,"geyser",36).m));
 function setStep(){const s=SV.find(x=>x.id===F.svc);F.step=s&&(s.rent||s.need.length)?2:1}
 function flowHash(){
- const p=new URLSearchParams(),m={s:F.svc==="rent"?"":F.svc,m:F.mode,o:F.own,st:F.stove,gm:F.gm,d:F.deal};
+ const p=new URLSearchParams(),m={s:F.svc==="rent"?"":F.svc,m:F.mode,o:F.own,st:F.stove,gm:F.gm,d:F.deal,rk:F.rk,rt:F.rt};
  for(const k in m)if(m[k])p.set(k,m[k]);for(const k in F.cfg){const v=F.cfg[k];if(v!==""&&v!=null&&String(v)!=="0")p.set("c_"+k,v)}if(F.pick)p.set("p","1");
  const q=p.toString();return (F.svc==="rent"?"#rent":"#installations")+(q?"?"+q:"");
 }
@@ -612,8 +615,10 @@ function flowParse(h){
  const p=new URLSearchParams(location.hash.split("?")[1]||""),s=h==="rent"?"rent":p.get("s"),md=p.get("m"),ow=p.get("o");
  const cf={},OKV={cy:["have","need"],i9:["empty","gas"],cage:["yes","no"],cs:["9","19","48"],cm:["s","d"],gr:["yes","no"],wc:["yes","no"]};
  p.forEach((v,k)=>{if(k.indexOf("c_")!==0)return;const n=k.slice(2);if(OKV[n]&&OKV[n].includes(v))cf[n]=v;else if(/^g(9|19|48)$/.test(n)&&(v==="e"||v==="g"))cf[n]=v;else if(/^q(9|19|48)$/.test(n)&&/^[1-9]$/.test(v))cf[n]=v});
- Object.assign(F,{cfg:cf,svc:SV.some(x=>x.id===s)?s:null,mode:md==="internal"||md==="external"?md:null,own:ow==="yes"||ow==="no"?ow:null,stove:p.get("st"),gm:p.get("gm"),deal:p.get("d"),pick:p.has("p")});
+ Object.assign(F,{cfg:cf,svc:SV.some(x=>x.id===s)?s:null,mode:md==="internal"||md==="external"?md:null,own:ow==="yes"||ow==="no"?ow:null,stove:p.get("st"),gm:p.get("gm"),deal:p.get("d"),rk:["hob","geyser","bundle"].includes(p.get("rk"))?p.get("rk"):null,rt:+p.get("rt")||24,pick:p.has("p")});
  if((F.svc==="geyser"||F.svc==="combo")&&!Q.done)F.svc=null;
+ if(F.rk&&F.rk!=="hob"&&!Q.done)F.rk=null;
+ if(F.rk&&!TERMS[F.rk].includes(F.rt))F.rt=24;
  setStep();
 }
 function nav(){setStep();const hh=flowHash();if(location.hash===hh){render();scrollTo(0,0)}else location.hash=hh}
@@ -624,7 +629,7 @@ function render(){
  const s=SV.find(x=>x.id===F.svc),el=$f("flow"),hob=!!s&&s.id==="hob",rent=!!s&&!!s.rent,step2=F.step===2&&!!s;
  let lab,cur;
  if(!step2){lab=["Select a service","Choose your options","Review quote"];cur=1}
- else if(rent){lab=["Select a service","Choose your deal","Review quote"];cur=2}
+ else if(rent){lab=["Select a service","Choose appliance type","Choose your deal","Review quote"];cur=F.rk?3:2}
  else if(hob&&F.own==="yes"){lab=["Select a service","Own hob or need one","Build your package","Cost estimator"];cur=3}
  else if(hob){lab=["Select a service","Own hob or need one","Choose installation type","Choose your hob","Review quote"];cur=!F.own?2:!F.mode?3:(F.pick||!F.stove)?4:5}
  else if(s.id==="combo"){lab=["Select a service","Choose geyser and options","Choose your hob","Review quote"];cur=(F.gm&&stepsHTML("geyser").all)?3:2}
@@ -632,7 +637,7 @@ function render(){
  $f("crumbs").innerHTML=lab.map((t,i)=>{const n=i+1,x=`Step ${n}: ${t}`;if(n===cur)return `<li class="cur" aria-current="step">${x}</li>`;if(n===1&&cur>1)return `<li><button data-a="back">${x}</button></li>`;return `<li>${x}</li>`}).join("");
  if(!step2){
   el.innerHTML=`<div class="head"><h1>Choose your service</h1><p>Every job follows SANS 10087-1 and ends with a signed Certificate of Compliance.</p></div>${nxt(F.svc?"Press <b>Review Quote</b> at the bottom of the screen.":"Choose a service below to get started.")}<div class="svc">`+
-  SV.map(v=>`<div class="card${F.svc===v.id?" sel":""}"><span class="tag">${v.tag}</span><h3>${v.name}</h3><div class="from">${v.rent?"From R"+Math.min(...RD.map(x=>rdc(x.id).m))+"/month":"From "+Rn(v.base)}</div><p>${v.d}</p><ul>${v.pts.map(p=>`<li>${p}</li>`).join("")}</ul><button class="btn" data-a="svc" data-id="${v.id}">${svBtn(v)}</button></div>`).join("")+`</div>`;
+  SV.map(v=>`<div class="card${F.svc===v.id?" sel":""}"><span class="tag">${v.tag}</span><h3>${v.name}</h3><div class="from">${v.rent?"From R"+minRent()+"/month":"From "+Rn(v.base)}</div><p>${v.d}</p><ul>${v.pts.map(p=>`<li>${p}</li>`).join("")}</ul><button class="btn" data-a="svc" data-id="${v.id}">${svBtn(v)}</button></div>`).join("")+`</div>`;
  }else if(rent){el.innerHTML=rentHTML()}
  else if(hob&&!F.own){el.innerHTML=hobAskHTML()}
  else if(hob&&F.own==="yes"){el.innerHTML=ownHTML()}
@@ -650,6 +655,7 @@ function bar(s){
  a.textContent="Review Quote";
  if(s.id==="hob"&&(F.own!=="no"||!F.mode)){off();return}
  if(s.rent){
+  if(!F.rk){off();return}
   const d=rdc(F.deal);a.textContent="Review and Apply";
   $f("bsum").textContent=d?`${d.name} \u00b7 Deposit ${Rn(d.dep)} \u00b7 Total payable ${Rn(d.dep+d.m*d.n)}`:"Choose a rent-to-own deal";
   $f("btot").textContent=d?`${Rn(d.m)}/month \u00d7 ${d.n}`:"";can(!!d);on();return}
@@ -657,12 +663,12 @@ function bar(s){
  $f("bsum").textContent=f.miss.length?"Still to choose: "+f.miss.join(", "):`${s.name} \u00b7 ${n} item${n>1?"s":""}`;
  $f("btot").textContent=(f.miss.length?"Total so far ":"Estimated ")+Rn(f.total);can(!f.miss.length);on();
 }
-function goBack(){F.svc=null;F.mode=null;F.own=null;F.pick=false;F.deal=null;nav()}
+function goBack(){F.svc=null;F.mode=null;F.own=null;F.pick=false;F.deal=null;F.rk=null;nav()}
 $f("flow").addEventListener("click",e=>{
  const t=e.target.closest("[data-a]");if(!t)return;
  const a=t.dataset.a,id=t.dataset.id;
  if(a==="svc"){
-  const go=()=>{const s=SV.find(x=>x.id===id);if(F.svc!==id)F.cfg={};F.svc=id;F.mode=null;F.own=null;F.pick=false;F.deal=null;F.stove=null;nav();};
+  const go=()=>{const s=SV.find(x=>x.id===id);if(F.svc!==id)F.cfg={};F.svc=id;F.mode=null;F.own=null;F.pick=false;F.deal=null;F.rk=null;F.stove=null;nav();};
   if((id==="geyser"||id==="combo")&&!Q.done){askQ(go);return}go();return}
  if(a==="cf"){F.cfg[t.dataset.k]=t.dataset.v;sel()}
  if(a==="qty"){const k=t.dataset.k,sz=k.slice(1),n=Math.max(0,Math.min(9,(+F.cfg[k]||0)+(+t.dataset.d)));F.cfg[k]=n;if(n&&!F.cfg["g"+sz])F.cfg["g"+sz]="g";sel()}
@@ -677,18 +683,28 @@ $f("flow").addEventListener("click",e=>{
  if(a==="gm"){F.gm=id;sel()}
  if(a==="gal"){G.id=id;G.i=0;galShow();$("gal").showModal()}
  if(a==="deal"){F.deal=F.deal===id?null:id;sel()}
+ if(a==="rk"){const go=()=>{F.rk=id;F.rt=24;F.deal=null;nav()};if(id!=="hob"&&!Q.done){askQ(go);return}go()}
+ if(a==="rkback"){F.rk=null;F.deal=null;nav()}
+ if(a==="term"){F.rt=+t.dataset.v;sel()}
 });
 $f("crumbs").addEventListener("click",e=>{if(e.target.dataset.a==="back")goBack()});
 const SIMG="https://dailydiscounts.co.za/wp-content/uploads/2026/05/Untitled-design-1.webp",GIMG="https://www.thegascompany.co.za/wp-content/uploads/2026/05/TGC28L-rent-to-own-1.jpg";
-const dealCard=d=>{const on=F.deal===d.id,nm=[d.st&&d.st.name,d.g&&d.g.name].filter(Boolean).join(" + ");
- return `<div class="kit${on?" sel":""}"><div class="thumb"><img src="${d.grp==="hob"?SIMG:GIMG}" alt="${nm}" loading="lazy"></div><div class="tags"><span class="tag">${d.tag}</span></div><div><h3>${nm}</h3><small style="color:var(--text-secondary)">${d.n}-month rent to own</small></div><div class="from">${Rn(d.m)}<span style="font:500 .9rem Figtree;color:var(--text-secondary)"> /month</span></div><div class="rt"><div><span>Deposit</span><b>${d.dep?Rn(d.dep):"R0"}</b></div><div><span>Term</span><b>${d.n} months</b></div><div><span>Total payable</span><b>${Rn(d.dep+d.m*d.n)}</b></div></div><div><div class="sh" style="margin:0 0 4px">Included in your contract</div><ul>${d.pts.map(p=>`<li>${p}</li>`).join("")}</ul></div><div class="fit">${d.t}</div><button class="btn${on?"":" ghost"}" data-a="deal" data-id="${d.id}" aria-pressed="${on}">${on?"Selected \u2713":"Choose this deal"}</button></div>`};
+const dealCard=d=>{const on=F.deal===d.pid;
+ return `<div class="kit${on?" sel":""}"><div class="thumb"><img src="${d.grp==="hob"?SIMG:GIMG}" alt="${d.nm}" loading="lazy"></div><div class="tags"><span class="tag">${d.tag}</span></div><div><h3>${d.nm}</h3><small style="color:var(--text-secondary)">${d.n}-month rent to own</small></div><div class="from">${Rn(d.m)}<span style="font:500 .9rem Figtree;color:var(--text-secondary)"> /month</span></div><div class="rt"><div><span>Deposit</span><b>${d.dep?Rn(d.dep):"R0"}</b></div><div><span>Term</span><b>${d.n} months</b></div><div><span>Total payable</span><b>${Rn(d.dep+d.m*d.n)}</b></div></div><div><div class="sh" style="margin:0 0 4px">Included in your contract</div><ul>${d.pts.map(p=>`<li>${p}</li>`).join("")}</ul></div><div class="fit">${d.t}</div><button class="btn${on?"":" ghost"}" data-a="deal" data-id="${d.pid}" aria-pressed="${on}">${on?"Selected \u2713":"Choose this deal"}</button></div>`};
 
 function rentHTML(){
  const T2=[["Eligibility","South African ID, proof of address, 3 months of bank statements and a successful credit and affordability check."],["Payments","Deposit and first instalment are paid before installation. The rest is collected by debit order on the same date each month."],["Ownership","The appliance stays the property of The GAS Co until the final instalment. We then hand over an ownership letter."],["Maintenance","Faults on the rented appliance are repaired free during the term. Damage, misuse, cylinders and gas supply are excluded."],["Early settlement","Settle the remaining instalments at any time and take ownership immediately."],["Missed payments","Two missed instalments can lead to repossession after written notice. Moving house requires reinstallation at your cost."]];
  const how=`<div class="head" style="margin-top:8px"><h2>How rent to own works</h2></div><div class="steps"><div class="card"><h3>Choose your deal</h3><p>Compare the monthly price and inclusions on each card.</p></div><div class="card"><h3>Apply</h3><p>Send your documents on WhatsApp for a quick credit check.</p></div><div class="card"><h3>Pay and own</h3><p>We install and certify it. After the last instalment, it is yours.</p></div></div>`;
  const terms=`<div class="panel terms" style="margin-top:28px"><h3>Contract terms for every deal</h3>${T2.map(r=>`<div class="tr"><b>${r[0]}</b><span>${r[1]}</span></div>`).join("")}<p style="font-size:.84rem;color:var(--text-secondary);margin-top:12px">All deals are subject to credit approval and a signed agreement.</p></div>`;
- const sec=(t,sub,g)=>`<div class="grp"><h2 style="font-size:1.4rem">${t}</h2><span>${sub}</span></div><div class="kits">${RD.filter(x=>x.grp===g).map(x=>dealCard(rdc(x.id))).join("")}</div>`,h=rdc("h12"),y=rdc("g24"),b=rdc("b24");
- return `<div class="head"><h1>Rent to own</h1><p>Fully installed and certified now, paid off monthly. Each card shows the appliance, the monthly price and what is included.</p></div>${nxt(F.deal?"Press <b>Review and Apply</b> at the bottom of the screen.":"Choose one deal below. You can switch at any time to compare.")}`+sec("Gas hobs",h.st.name,"hob")+sec("Gas geysers",`${y.g.name}, supplies up to ${y.g.baths} bathrooms. Larger home? <a href="https://wa.me/27673447891" target="_blank" rel="noopener" class="lnk">Ask us on WhatsApp</a>`,"geyser")+sec("Hob and geyser bundle","One agreement for both","bundle")+how+terms;
+ if(!F.rk){
+  const C=[["hob","Gas hobs","Choose Gas Hobs","Pick a gas hob and see the monthly price on each one."],["geyser","Gas geysers","Choose Gas Geysers",Q.done?qBadge()+"<p>Geysers matched to your home.</p>":"Answer 3 quick questions so we only show geysers that suit your home."],["bundle","Hob and geyser bundle","Choose the Bundle",Q.done?qBadge()+"<p>One agreement for a geyser that suits your home plus a gas hob.</p>":"One agreement for both. Answer 3 quick questions so we match the geyser to your home."]];
+  return `<div class="head"><h1>What would you like to rent to own?</h1><p>Fully installed and certified now, paid off monthly. Choose a category and we show the products with their monthly prices.</p></div>${nxt("Choose <b>Gas Hobs</b>, <b>Gas Geysers</b> or the <b>Bundle</b> below.")}<div class="svc">`+C.map(c=>`<div class="card"><span class="tag">Rent to own</span><h3>${c[1]}</h3>${c[3].charAt(0)==="<"?c[3]:`<p>${c[3]}</p>`}<button class="btn" data-a="rk" data-id="${c[0]}">${c[2]}</button></div>`).join("")+`</div>`+how+terms;
+ }
+ const k=F.rk,ts=TERMS[k],list=k==="hob"?STOVES:GEYS.filter(g=>g.baths>=Q.bath),d=rdc(F.deal),n2=Q.bath;
+ const title=k==="hob"?"Gas hobs":k==="geyser"?"Gas geysers for your home":"Geyser and hob bundles for your home";
+ const sub=k==="hob"?"Choose 1":`${PT[Q.prop].split(",")[0]} \u00b7 ${n2}${n2===5?"+":""} bathroom${n2>1?"s":""} \u00b7 ${TP[Q.tap]} <button class="lnk" data-q="1">Edit answers</button>`+(k==="bundle"?` \u00b7 each bundle includes a ${STOVES.find(x=>x.id===RA.hob).name}`:"");
+ const tsel=ts.length>1?`<div class="grp"><h2 style="font-size:1.4rem">Choose your term</h2><span>Longer terms lower the monthly price</span></div><div class="seg3" role="radiogroup" aria-label="Rent to own term" style="max-width:420px;margin-bottom:28px">${ts.map(n=>`<button type="button" class="opt${F.rt===n?" on":""}" role="radio" aria-checked="${F.rt===n}" data-a="term" data-v="${n}"><span>${n} months</span></button>`).join("")}</div>`:"";
+ return `<div class="head"><h1>Rent to own: ${k==="hob"?"gas hobs":k==="geyser"?"gas geysers":"hob and geyser bundle"}</h1><p>Each card shows the monthly price and what is included. <button class="lnk" data-a="rkback">Change appliance type</button></p></div>${nxt(d?"Press <b>Review and Apply</b> at the bottom of the screen.":"Choose one product below. Your monthly price is on each card.")}${tsel}<div class="grp"><h2 style="font-size:1.4rem">${title}</h2><span>${sub}</span></div><div class="kits">${list.map(x=>rdc(x.id)).filter(Boolean).map(dealCard).join("")}</div>`+how+terms;
 }
 function flowNav(h){F.on=h==="installations"||h==="rent";if(F.on)flowParse(h);render()}
 function renderGeysers(){
